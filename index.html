@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Arch Pusher v1.16 “Rings”</title>
+<title>Arch Pusher v1.16.1 “Speed”</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: Frame Pusher shell. Neon nav bar, two-column tool rail with inputs below, arch canvas with floating toolbar, force-polygon panel right, toggle bar below */
@@ -132,7 +132,7 @@ tr.h td{color:color-mix(in srgb,var(--neon2) 80%,var(--ink));font-weight:700;fon
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
-<nav id="top"><span class="tt">▦ Arch Pusher</span><small>v1.16</small><button id="bNew" type="button">New</button><button id="bIO" type="button">Save / load</button><i></i><button id="bVal" type="button">✓ Validation</button><button id="bAbout" type="button">About</button></nav>
+<nav id="top"><span class="tt">▦ Arch Pusher</span><small>v1.16.1</small><button id="bNew" type="button">New</button><button id="bIO" type="button">Save / load</button><i></i><button id="bVal" type="button">✓ Validation</button><button id="bAbout" type="button">About</button></nav>
 
 <aside id="tools">
   <div class="gh" style="margin-top:2px">Example structures</div>
@@ -255,7 +255,7 @@ tr.h td{color:color-mix(in srgb,var(--neon2) 80%,var(--ink));font-weight:700;fon
 <div id="vmodal" hidden><div class="vc" role="dialog" aria-modal="true" aria-labelledby="vt"><div class="vch"><b id="vt"></b><button id="vX" type="button" aria-label="Close">×</button></div><div id="vb"></div></div></div>
 
 <script>
-const VER='1.16',VNAME='Rings';
+const VER='1.16.1',VNAME='Speed';
 const $=id=>document.getElementById(id);
 document.title=`Arch Pusher v${VER} “${VNAME}”`;
 try{document.documentElement.dataset.theme=localStorage.getItem('ap_theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}
@@ -395,19 +395,43 @@ function supportGeom(g,P){const A=P.ab&&P.ab.on?P.ab:null,B=P.sb&&P.sb.on?P.sb:n
       Object.assign(S2,{x0,xb:out(yBot),Wo:fo?fo.W:0,wid:fo?Math.abs(fo.x2-fo.x1):0,poly:[[x0,yA],[xi,yA],[xi,yBot],[out(yBot),yBot]],Wa:last.Wa,F:last.F,yF:last.yF})}
     S2.cuts[S2.cuts.length-1].base=true;
     const xs=[xi,xe].concat(B?[S2.blk.xb,S2.blk.xf]:[]).concat(A?[S2.x0,S2.xb]:[]);S2.xOut=s<0?Math.min(...xs):Math.max(...xs);g.sup.sides[side]=S2})}
-function region(g,H,eps=0){
-  const Bb=1e4*(g.Wt+H+1)*(g.L+1),Vb=10*g.Wt+H+1;let P=[[-Vb,-Bb],[Vb,-Bb],[Vb,Bb],[-Vb,Bb]];
-  for(let j=0;j<=g.N&&P.length>2;j++){if(g.void[j])continue;const I=g.I[j],E=g.E[j];
-    P=clip(P,-I[0],-1,-H*I[1]-g.qI[j]-eps);P=clip(P,E[0],1,H*E[1]+g.qE[j]-eps)}
-  for(const c of g.xc||[]){if(P.length<3)break;P=clip(P,-c.I[0],-1,-H*c.I[1]-c.qI-eps);P=clip(P,c.E[0],1,H*c.E[1]+c.qE-eps)}
-  return P;
+/* the admissible (V, c) polygon at thrust H: the box clipped by every joint's two half-planes. Same arithmetic as clip(),
+   on two flat ping-pong buffers so the inner loop allocates nothing (this runs thousands of times per solve). */
+let RGA=new Float64Array(64),RGB=new Float64Array(64);
+function region(g,H,eps=0,cnt){
+  const Bb=1e4*(g.Wt+H+1)*(g.L+1),Vb=10*g.Wt+H+1,xc=g.xc||[],need=2*(8+2*(g.N+1)+2*xc.length);
+  if(RGA.length<need){RGA=new Float64Array(need);RGB=new Float64Array(need)}
+  let A=RGA,B=RGB,n=4;A[0]=-Vb;A[1]=-Bb;A[2]=Vb;A[3]=-Bb;A[4]=Vb;A[5]=Bb;A[6]=-Vb;A[7]=Bb;
+  const cl=(a,b,r)=>{let m=0;for(let i=0;i<n;i++){const i2=2*i,k2=i+1<n?i2+2:0,px=A[i2],py=A[i2+1],qx=A[k2],qy=A[k2+1],fp=a*px+b*py-r,fq=a*qx+b*qy-r;
+      if(fp<=0){B[2*m]=px;B[2*m+1]=py;m++}if((fp<0&&fq>0)||(fp>0&&fq<0)){const s=fp/(fp-fq);B[2*m]=px+s*(qx-px);B[2*m+1]=py+s*(qy-py);m++}}
+    const T=A;A=B;B=T;n=m};
+  const qI=g.qI,qE=g.qE,I_=g.I,E_=g.E,vd=g.void;
+  for(let j=0;j<=g.N&&n>2;j++){if(vd[j])continue;const I=I_[j],E=E_[j];cl(-I[0],-1,-H*I[1]-qI[j]-eps);cl(E[0],1,H*E[1]+qE[j]-eps)}
+  for(let k=0;k<xc.length;k++){if(n<3)break;const c=xc[k];cl(-c.I[0],-1,-H*c.I[1]-c.qI-eps);cl(c.E[0],1,H*c.E[1]+c.qE-eps)}
+  if(cnt)return n;
+  const P=new Array(n);for(let i=0;i<n;i++)P[i]=[A[2*i],A[2*i+1]];return P;
 }
-const feas=(g,H)=>region(g,H).length>2;
+const feas=(g,H)=>region(g,H,0,true)>2;
 /* largest uniform slack (kN·m) over all joint constraints at thrust H: concave in H, ≥ 0 exactly when H is admissible */
-function slack(g,H){const Sc=(g.Wt+H+1)*(g.L+g.Ytop+1);let lo=-Sc,hi=Sc;if(region(g,H,hi).length>2)return hi;if(region(g,H,lo).length<3)return lo;
-  for(let k=0;k<32;k++){const m=(lo+hi)/2;region(g,H,m).length>2?lo=m:hi=m}return lo}
+function slack(g,H){const Sc=(g.Wt+H+1)*(g.L+g.Ytop+1);let lo=-Sc,hi=Sc;if(region(g,H,hi,true)>2)return hi;if(region(g,H,lo,true)<3)return lo;
+  for(let k=0;k<32;k++){const m=(lo+hi)/2;region(g,H,m,true)>2?lo=m:hi=m}return lo}
 /* golden-section search for the thrust with the most slack; with quick=true it stops at the first admissible H */
-function bestH(g,quick){const W=g.Wt;if(!(W>0))return null;const Hu=W*30;let a=0,b=Hu;const r=(Math.sqrt(5)-1)/2;
+/* the same search as one linear programme: maximise the uniform slack ε over (H, V, c), H ∈ [0, Hu]. Columns H, V±, c±, ε±.
+   Returns {H, eps} or null if the solver fails. Used to find an admissible thrust (or prove there is none) in one LP
+   instead of ~50 golden-section steps of 34 polygon clips each. */
+function lpSlack(g,Hu){const N=g.N,A=[],b=[],Sc=(g.Wt+Hu+1)*(g.L+g.Ytop+1);
+  const row=(x,y,q,sg)=>{// intrados (sg=1): H y − V x − c + ε ≤ −q ; extrados (sg=−1): −H y + V x + c + ε ≤ q
+    A.push([sg*y,-sg*x,sg*x,-sg,sg,1,-1]);b.push(-sg*q)};
+  for(let j=0;j<=N;j++){if(g.void[j])continue;row(g.I[j][0],g.I[j][1],g.qI[j],1);row(g.E[j][0],g.E[j][1],g.qE[j],-1)}
+  for(const c of g.xc||[]){row(c.I[0],c.I[1],c.qI,1);row(c.E[0],c.E[1],c.qE,-1)}
+  A.push([1,0,0,0,0,0,0]);b.push(Hu);A.push([0,0,0,0,0,1,0]);b.push(Sc);
+  let o=null;try{o=lp2(A,b,[0,0,0,0,0,1,-1],false)}catch(e){o=null}if(!o)return null;return{H:o.x[0],eps:o.x[5]-o.x[6],Sc}}
+function bestH(g,quick){const W=g.Wt;if(!(W>0))return null;const Hu=W*30;
+  if(quick){const o=lpSlack(g,Hu);if(o&&isFinite(o.eps)){const tol=1e-10*o.Sc;
+      if(o.eps>tol&&feas(g,o.H))return{Hs:o.H,ok:true,Hu};if(o.eps<-tol)return{Hs:o.H,ok:false,Hu};
+      // within round-off of the limit: decide with the polygon slack, as before, starting at the LP's thrust
+      if(slack(g,o.H)>=0)return{Hs:o.H,ok:true,Hu}}}
+  let a=0,b=Hu;const r=(Math.sqrt(5)-1)/2;
   let x1=b-r*(b-a),x2=a+r*(b-a),f1=slack(g,x1),f2=slack(g,x2);
   for(let k=0;k<48;k++){if(quick&&(f1>=0||f2>=0))return{Hs:f1>=f2?x1:x2,ok:true,Hu};if(f1<f2){a=x1;x1=x2;f1=f2;x2=a+r*(b-a);f2=slack(g,x2)}else{b=x2;x2=x1;f2=f1;x1=b-r*(b-a);f1=slack(g,x1)}}
   const Hs=(a+b)/2;return{Hs,ok:slack(g,Hs)>=0,Hu}}
@@ -523,7 +547,7 @@ function movLP(gD,gM,sense){const N=gD.N,Ws=Math.max(gD.Wt+gM.Wt,1e-9),Ls=gD.L,K
   (gD.xc||[]).forEach(c=>{const mI=c.side==='R'?Qm(N,c.I[0]):0,mE=c.side==='R'?Qm(N,c.E[0]):0;
     A.push([c.I[1]/Ls,-c.I[0]/Ls,c.I[0]/Ls,-1,1,mI/K]);b.push(-c.qI/K);A.push([-c.E[1]/Ls,c.E[0]/Ls,-c.E[0]/Ls,1,-1,-mE/K]);b.push(c.qE/K)});
   A.push([1,0,0,0,0,0]);b.push(30);A.push([0,0,0,0,0,1]);b.push(sense==='lam'?50:1);if(sense!=='lam'){A.push([0,0,0,0,0,-1]);b.push(-1)}
-  const c=sense==='lam'?[0,0,0,0,0,1]:sense==='hmin'?[-1,0,0,0,0,0]:[1,0,0,0,0,0],o=lpSolve(A,b,c);if(!o)return null;
+  const c=sense==='lam'?[0,0,0,0,0,1]:sense==='hmin'?[-1,0,0,0,0,0]:[1,0,0,0,0,0],o=lp2(A,b,c);if(!o)return null;
   return{lam:o.x[5],H:o.x[0]*Ws}}
 /* the fixed loads and the moving load at position xm, on the analysis sections */
 function movGeoms(P,l,xm,top){const mE=effM(P),Pn={...P,N:P.N*mE},rest=P.loads.filter(q=>q!==l);
@@ -558,30 +582,43 @@ function collarType(P,g,m,i,mR,Ca,Cb){const Rg=P.rg,N=P.N,v=Math.floor(i/mR),xm=
   if(Rg.bond==='hdr'){const k=Math.max(1,Math.round(+Rg.hk||4));if(Math.min(v,N-1-v)%k===k-1)return{t:'rigid',hdr:true}}
   const sp=Rg.bond==='sep',cc=sp?0:c;return{t:!sp||mu>0?'fric':'none',mu,c:cc,sep:sp}}
 /* dense two-phase simplex with Dantzig pricing (Bland's rule after a run of degenerate pivots): maximise c·x, A x ≤ b, x ≥ 0 */
-function lp2(A0,b0,c0,feasOnly){const m=A0.length,n=c0.length,W=n+m+2,a=n+m,rh=W-1,T=new Float64Array((m+1)*W),B=new Int32Array(m),eps=1e-9,zo=m*W,nz=new Int32Array(W);
+function lp2(A0,b0,c0,feasOnly){
+  // Compact tableau: one column per nonbasic variable (n structural + the artificial) instead of one per variable, so a
+  // pivot costs O(m·n) rather than O(m·(n + m)). Variables are numbered as in the full tableau (structural 0..n−1,
+  // slacks n..n+m−1, artificial n+m); pricing, Harris ratio test, Devex weights and Bland's fallback pick exactly the
+  // same pivots as the full-tableau version, ties broken by the lower variable number.
+  const m=A0.length,n=c0.length,a=n+m,K=n+1,W=K+1,rh=K,T=new Float64Array((m+1)*W),B=new Int32Array(m),NB=new Int32Array(K),eps=1e-9,zo=m*W,nz=new Int32Array(W),NV=n+m+1;
+  for(let k=0;k<n;k++)NB[k]=k;NB[n]=a;const ka=n;
   // equilibrate: columns, then rows, to unit largest coefficient (x = C x̃, rows R A C x̃ ≤ R b)
   const cs=new Float64Array(n).fill(0);for(let i=0;i<m;i++){const r=A0[i];for(let j=0;j<n;j++){const v=Math.abs(r[j]);if(v>cs[j])cs[j]=v}}for(let j=0;j<n;j++)cs[j]=cs[j]>0?1/cs[j]:1;
-  for(let i=0;i<m;i++){const o=i*W,Ai=A0[i];let mx=0;for(let j=0;j<n;j++){const v=Ai[j]*cs[j];T[o+j]=v;if(Math.abs(v)>mx)mx=Math.abs(v)}const rs=mx>0?1/mx:1;for(let j=0;j<n;j++)T[o+j]*=rs;T[o+n+i]=1;T[o+a]=-1;T[o+rh]=b0[i]*rs;B[i]=n+i}
+  for(let i=0;i<m;i++){const o=i*W,Ai=A0[i];let mx=0;for(let j=0;j<n;j++){const v=Ai[j]*cs[j];T[o+j]=v;if(Math.abs(v)>mx)mx=Math.abs(v)}const rs=mx>0?1/mx:1;for(let j=0;j<n;j++)T[o+j]*=rs;T[o+ka]=-1;T[o+rh]=b0[i]*rs;B[i]=n+i}
   const c=new Float64Array(n);for(let j=0;j<n;j++)c[j]=c0[j]*cs[j];
-  const piv=(r,q)=>{const ro=r*W,pv=T[ro+q];let k=0;for(let j=0;j<W;j++){if(T[ro+j]!==0){T[ro+j]/=pv;nz[k++]=j}}
-    for(let i=0;i<=m;i++){if(i===r)continue;const io=i*W,f=T[io+q];if(f!==0){for(let t=0;t<k;t++){const j=nz[t];T[io+j]-=f*T[ro+j]}T[io+q]=0}}B[r]=q};
-  const wt=new Float64Array(W);
+  const piv=(r,q)=>{const ro=r*W,pv=T[ro+q];let k=0;for(let j=0;j<W;j++){if(j!==q&&T[ro+j]!==0){T[ro+j]/=pv;nz[k++]=j}}const Rq=1/pv;T[ro+q]=Rq;
+    const dense=k*3>W*2;
+    for(let i=0;i<=m;i++){if(i===r)continue;const io=i*W,f=T[io+q];if(f!==0){if(dense){for(let j=0;j<W;j++)T[io+j]-=f*T[ro+j]}else{for(let t=0;t<k;t++){const j=nz[t];T[io+j]-=f*T[ro+j]}}T[io+q]=-f*Rq}}
+    const lv=B[r];B[r]=NB[q];NB[q]=lv};
+  const wt=new Float64Array(NV);
   const run=skip=>{let dg=0,bl=false;wt.fill(1);for(let it=0;it<60000;it++){let q=-1;
-      if(bl){for(let j=0;j<rh;j++)if(j!==skip&&T[zo+j]<-eps){q=j;break}}else{let mx=0;for(let j=0;j<rh;j++){const d=T[zo+j];if(j!==skip&&d<-eps){const sc=d*d/wt[j];if(sc>mx){mx=sc;q=j}}}}
+      if(bl){for(let k=0;k<K;k++){const j=NB[k];if(j!==skip&&T[zo+k]<-eps&&(q<0||j<NB[q]))q=k}}
+      else{let mx=0;for(let k=0;k<K;k++){const j=NB[k],d=T[zo+k];if(j!==skip&&d<-eps){const sc=d*d/wt[j];if(sc>mx||(sc===mx&&q>=0&&j<NB[q])){mx=sc;q=k}}}}
       if(q<0)return 1;
       // Harris two-pass ratio test: the largest pivot among rows within a small tolerance of the minimum ratio
       let cm=0;for(let i=0;i<m;i++){const v=Math.abs(T[i*W+q]);if(v>cm)cm=v}const pt=Math.max(1e-9,1e-9*cm);
       let th=Infinity;for(let i=0;i<m;i++){const v=T[i*W+q];if(v>pt){const t=(Math.max(T[i*W+rh],0)+1e-9)/v;if(t<th)th=t}}
       if(th===Infinity)return 0;let r=-1,bv=0;for(let i=0;i<m;i++){const v=T[i*W+q];if(v>pt&&Math.max(T[i*W+rh],0)/v<=th){if(bl?(r<0||B[i]<B[r]):v>bv){bv=v;r=i}}}
       if(r<0)return 0;const step=Math.max(T[r*W+rh],0)/T[r*W+q];if(step<1e-11){if(++dg>50)bl=true}else{dg=0;bl=false}
-      {const ro=r*W,ap=T[ro+q],wq=wt[q];for(let j=0;j<rh;j++){const v=T[ro+j];if(v!==0&&j!==q){const w=(v/ap)*(v/ap)*wq;if(w>wt[j])wt[j]=w}}wt[B[r]]=Math.max(wq/(ap*ap),1)}
+      {const ro=r*W,ap=T[ro+q],qv=NB[q],wq=wt[qv];for(let k=0;k<K;k++){const v=T[ro+k];if(v!==0&&k!==q){const w=(v/ap)*(v/ap)*wq,j=NB[k];if(w>wt[j])wt[j]=w}}wt[B[r]]=Math.max(wq/(ap*ap),1)}
       piv(r,q);if(T[r*W+rh]<0)T[r*W+rh]=0}return -1};
-  T[zo+a]=1;let rm=-1,bm=0;for(let i=0;i<m;i++)if(T[i*W+rh]<bm){bm=T[i*W+rh];rm=i}
-  if(rm>=0){piv(rm,a);run(-1);if(T[zo+rh]<-1e-8)return null;let ri=-1;for(let i=0;i<m;i++)if(B[i]===a)ri=i;if(ri>=0){let q=-1,bv=0;for(let j=0;j<rh;j++){const v=Math.abs(T[ri*W+j]);if(j!==a&&v>bv){bv=v;q=j}}if(q>=0&&bv>1e-9)piv(ri,q)}}
+  T[zo+ka]=1;let rm=-1,bm=0;for(let i=0;i<m;i++)if(T[i*W+rh]<bm){bm=T[i*W+rh];rm=i}
+  if(rm>=0){piv(rm,ka);run(-1);if(T[zo+rh]<-1e-8)return null;let ri=-1;for(let i=0;i<m;i++)if(B[i]===a)ri=i;
+    if(ri>=0){let q=-1,bv=0;for(let k=0;k<K;k++){const v=Math.abs(T[ri*W+k]);if(NB[k]!==a&&(v>bv||(v===bv&&q>=0&&v>0&&NB[k]<NB[q]))){bv=v;q=k}}if(q>=0&&bv>1e-9)piv(ri,q)}}
   const val=()=>{const x=new Float64Array(n);for(let i=0;i<m;i++)if(B[i]<n)x[B[i]]=T[i*W+rh]*cs[B[i]];return x};
   if(feasOnly)return{x:val(),z:0};
-  for(let j=0;j<W;j++)T[zo+j]=0;for(let j=0;j<n;j++)T[zo+j]=-c[j];for(let i=0;i<m;i++){const f=T[zo+B[i]];if(f!==0){const io=i*W;for(let j=0;j<W;j++)T[zo+j]-=f*T[io+j]}}
-  for(let i=0;i<m;i++)T[i*W+a]=0;T[zo+a]=0;const st=run(a);if(st!==1)return null;return{x:val(),z:T[zo+rh]}}
+  // phase 2: reduced costs of the nonbasic columns, d_k = −c_k + Σ_i c_B(i) T_ik, and the objective value Σ_i c_B(i) rhs_i
+  for(let k=0;k<W;k++)T[zo+k]=0;for(let k=0;k<K;k++){const j=NB[k];if(j<n)T[zo+k]=-c[j]}
+  for(let i=0;i<m;i++){const bi=B[i];if(bi<n){const f=-c[bi];if(f!==0){const io=i*W;for(let k=0;k<W;k++)T[zo+k]-=f*T[io+k]}}}
+  for(let k=0;k<K;k++)if(NB[k]===a){for(let i=0;i<=m;i++)T[i*W+k]=0}
+  const st=run(a);if(st!==1)return null;return{x:val(),z:T[zo+rh]}}
 /* geometry for the ring analysis: the fixed loads gD and, if any, the live loads gL on the same sections */
 const ringSecs=P=>{const n=Math.max(1,Math.round(+(P.rg&&P.rg.n)||1)),tg=Math.min(48,Math.floor(120/n));return Math.max(1,Math.min(4,Math.floor(tg/P.N)))};
 function ringGeoms(P,t,top,liveSel){const mR=ringSecs(P),Pn={...P,N:P.N*mR},isL=liveSel||(()=>false),live=P.loads.filter(isL),rest=P.loads.filter(l=>!isL(l));
@@ -779,7 +816,9 @@ function mapHoop(g,tA,m){const N=g.N,J=[],Hj=[],Fb=new Array(N).fill(0),zb=new A
   for(let j=0;j<=N;j++){J.push({...tA.J[j*m]});Hj.push(tA.Hj[j*m])}
   for(let k=0;k<N;k++){let F=0,M=0;for(let i=0;i<m;i++){const f=tA.Fb[k*m+i];if(f>0){F+=f;M+=f*tA.zb[k*m+i]}}Fb[k]=F;zb[k]=F>0?M/F:null}
   return{...tA,J,Hj,Fb,zb,JA:tA.J,FA:tA.Fb,zA:tA.zb}}
-function compute(fast){
+/* live drags recompute at most once per frame; any direct compute() supersedes a pending one */
+let LCF=0;function liveCompute(){if(LCF)return;LCF=requestAnimationFrame(()=>{LCF=0;compute(true)})}
+function compute(fast){if(LCF){cancelAnimationFrame(LCF);LCF=0}
   syncShow();if(fast&&ANIM.on){S.conv=undefined;S.tmin='…'}const P=params(),g=geom(P,P.t,null),mE=effM(P),gA=mE>1?geom({...P,N:P.N*mE},P.t,g.Ytop):g,hp=isHoop(P),dome=P.struct==='dome';
   if(S.sel&&S.sel.kind==='sub'&&S.sel.k>=g.N)closePop();if(dome&&S.sel&&S.sel.kind==='load')closePop();
   let mode=S.mode;if(dome&&mode==='cus')mode='min';if(hp)mode='min';
@@ -902,7 +941,7 @@ function drawArch(){
   if(chn)drawChain(x,g,sx,sy,crE);
   if(tr&&S.show.fun&&!R.hp){x.strokeStyle=css.neon2;x.globalAlpha=.85;x.lineWidth=1.2;x.setLineDash([3,3]);poly(x,tr.fun,sx,sy);x.setLineDash([]);tr.K.forEach(p=>{x.fillStyle=css.neon2;x.fillRect(sx(p[0])-2,sy(p[1])-2,4,4)});x.globalAlpha=1}
   if(tr&&rgS){x.save();x.strokeStyle=css.thrust;x.globalAlpha=.55;x.lineWidth=1.4;x.setLineDash([6,4]);poly(x,tr.poly,sx,sy);x.restore()}
-  if(tr&&!rgS){const col=R.fallback||!tr.inside?css.bad:css.thrust;x.save();x.shadowColor=col;x.shadowBlur=document.documentElement.dataset.theme==='dark'?8:0;x.strokeStyle=col;x.lineWidth=2.6;x.lineJoin='round';if(R.fallback)x.setLineDash([7,5]);poly(x,tr.poly,sx,sy);x.restore();
+  if(tr&&!rgS){const col=R.fallback||!tr.inside?css.bad:css.thrust;x.save();x.strokeStyle=col;x.lineJoin='round';if(R.fallback)x.setLineDash([7,5]);if(document.documentElement.dataset.theme==='dark')haloPoly(x,tr.poly,sx,sy,2.6,8);x.lineWidth=2.6;poly(x,tr.poly,sx,sy);x.restore();
     if(tr.ab&&tr.ab.length)drawAbLine(x,g,tr,sx,sy,col);
     tr.J.forEach(J=>{if(J.void)return;const out=J.s<-1e-6||J.s>1+1e-6;x.fillStyle=out?css.bad:css.thrust;x.beginPath();x.arc(sx(J.p[0]),sy(J.p[1]),out?3.5:2.6,0,7);x.fill()});
     const JA=tr.JA||tr.J;JA.forEach((J,j)=>{if(J.void)return;const out=J.s<-1e-6||J.s>1+1e-6;if(out&&JA!==tr.J){x.fillStyle=css.bad;x.beginPath();x.arc(sx(J.p[0]),sy(J.p[1]),2.2,0,7);x.fill();return}
@@ -934,8 +973,10 @@ function drawGhost(x,g,sx,sy,yT){
   if(!drag.kind){x.beginPath();x.moveTo(X,Y-14);x.lineTo(X,Y-34);x.stroke();x.font=mono;x.textAlign='center';x.fillText(`x = ${fx(gx,2)} m`,X,Y-40);x.font='10.5px system-ui,sans-serif';x.fillStyle=css.mut;x.fillText(S.tool==='pl'?'drag up to apply':'drag along the road',X,Y+22)}
   x.restore()}
 /* fill textures, drawn in screen space inside each layer's clip */
-function drawTex(x,tex,x0,y0,x1,y1,dk){x.save();x.fillStyle=x.strokeStyle=css.ink;const rnd=(i,j)=>{const v=Math.sin(i*127.1+j*311.7)*43758.5453;return v-Math.floor(v)};
-  const grid=(st,f)=>{for(let yy=y0+st/2,j=0;yy<y1+st;yy+=st,j++)for(let xx=x0+(j%2)*st/2,i=0;xx<x1+st;xx+=st,i++)f(xx,yy,i,j)};
+/* neon glow for long lines: two wide translucent strokes under the line (a shadow blur over the whole canvas is far slower) */
+function haloPoly(x,pts,sx,sy,w,b){const a=x.globalAlpha;x.globalAlpha=a*.13;x.lineWidth=w+b*1.1;poly(x,pts,sx,sy);x.globalAlpha=a*.22;x.lineWidth=w+b*.5;poly(x,pts,sx,sy);x.globalAlpha=a}
+function drawTexRaw(x,tex,x0,y0,x1,y1,dk,wr){x.save();x.fillStyle=x.strokeStyle=css.ink;const rnd=(i,j)=>{const v=Math.sin(i*127.1+j*311.7)*43758.5453;return v-Math.floor(v)};
+  const grid=(st,f)=>{const kx=wr?wr(st)[0]:1/0,ky=wr?wr(st)[1]:1/0;for(let yy=y0+st/2,j=0;yy<y1+st;yy+=st,j++)for(let xx=x0+(j%2)*st/2,i=0;xx<x1+st;xx+=st,i++)f(xx,yy,i%kx,j%ky)};
   if(tex==='dots'){x.fillStyle=css.fillDot;grid(7,(a,b)=>x.fillRect(a,b,1.2,1.2))}
   else if(tex==='sand'){x.globalAlpha=.34;grid(4.5,(a,b,i,j)=>x.fillRect(a+rnd(i,j)*2,b+rnd(j,i)*2,1,1))}
   else if(tex==='gravel'){x.globalAlpha=.42;x.lineWidth=.8;grid(9,(a,b,i,j)=>{x.beginPath();x.arc(a+rnd(i,j)*3,b+rnd(j,i)*3,1.2+rnd(i+3,j)*1.4,0,7);x.stroke()})}
@@ -948,6 +989,16 @@ function drawTex(x,tex,x0,y0,x1,y1,dk){x.save();x.fillStyle=x.strokeStyle=css.in
   else if(tex==='asph'){x.globalAlpha=dk?.4:.3;grid(3.5,(a,b,i,j)=>{if(rnd(i,j)>.45)x.fillRect(a,b,1,1)})}
   else if(tex==='foam'){x.globalAlpha=.38;x.lineWidth=.8;grid(7,(a,b,i,j)=>{x.beginPath();x.arc(a+rnd(i,j)*2,b,1+rnd(j,i)*1.3,0,7);x.stroke()})}
   x.restore()}
+/* Fill textures are drawn once per material, theme and pixel ratio into a seamless tile and then filled as a pattern:
+   the procedural texture is thousands of tiny strokes, far too many to repeat on every redraw. */
+const TEX_ST={dots:7,sand:4.5,gravel:9,ballast:10,hoggin:8,rubble:13,soil:8,conc:9,asph:3.5,foam:7};const TEXC=new Map();
+function texPattern(x,tex,dk){const d=devicePixelRatio||1,key=tex+'|'+dk+'|'+d+'|'+css.ink+'|'+css.fillDot;let p=TEXC.get(key);if(p!==undefined)return p;
+  let tw,th,wr=null;if(tex==='clay'){tw=120;th=120}else{const st=TEX_ST[tex];if(!st){TEXC.set(key,null);return null}const kx=Math.ceil(120/st),ky=2*Math.ceil(60/st);tw=st*kx;th=st*ky;wr=()=>[kx,ky]}
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(tw*d));c.height=Math.max(1,Math.round(th*d));const t=c.getContext('2d');t.setTransform(c.width/tw,0,0,c.height/th,0,0);
+  // a 3 × 3 block of tiles with the random jitter indexed modulo the tile, so elements crossing an edge wrap round exactly
+  drawTexRaw(t,tex,-tw,-th,2*tw,2*th,dk,wr);p=x.createPattern(c,'repeat');p._s=[tw/c.width,th/c.height];if(TEXC.size>64)TEXC.clear();TEXC.set(key,p);return p}
+function drawTex(x,tex,x0,y0,x1,y1,dk){const p=texPattern(x,tex,dk);if(!p){drawTexRaw(x,tex,x0,y0,x1,y1,dk);return}
+  x.save();try{p.setTransform(new DOMMatrix([p._s[0],0,0,p._s[1],x0,y0]))}catch(e){}x.fillStyle=p;x.fillRect(Math.min(x0,x1),Math.min(y0,y1),Math.abs(x1-x0),Math.abs(y1-y0));x.restore()}
 /* dome overlays: axis of revolution, lantern, the membrane solution on the mid-surface and the hoop forces */
 function drawDome(x,g,sx,sy){const tr=R.tr,N=g.N,yTop=Math.max(...g.E.map(p=>p[1])),mono='600 10.5px ui-monospace,Menlo,monospace';
   x.save();x.strokeStyle=css.mut;x.globalAlpha=.7;x.setLineDash([10,4,2,4]);x.lineWidth=1;x.beginPath();x.moveTo(sx(0),sy(-0.04*g.L));x.lineTo(sx(0),sy(yTop+0.1*g.L));x.stroke();x.setLineDash([]);
@@ -1322,14 +1373,14 @@ $('cv').addEventListener('pointermove',e=>{if(!R)return;const m=world(e);moveChi
   if(e.pointerType==='touch'&&touches.has(e.pointerId)){touches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pinch&&touches.size===2){doPinch();return}}
   if(drag.kind==='pan'){const dx=e.clientX-drag.x0,dy=e.clientY-drag.y0;if(Math.hypot(dx,dy)>3)drag.moved=true;S.view.px=drag.px+dx;S.view.py=drag.py+dy;drawArch();placePop();return}
   if(drag.kind){const dk=drag.kind;
-    if(dk==='pull'||dk==='magL'){const l=S.loads[drag.i];if(Math.abs(m.my-drag.y0)>2)drag.moved=true;l.P=pullP(drag,m.my,e.shiftKey);drag.cy=m.my;compute(true);$('read').textContent=`${lname(drag.i)}: ${fx(l.P,0)} kN at x = ${fx(l.x,2)} m · drag up to increase, down to reduce${e.shiftKey?' · ×5':' · Shift for ×5'}`;return}
-    if(dk==='mkD'){S.loads[drag.i].x2=snap(m.X);compute(true);return}
-    if(dk==='mkZ'){const z=S.rg.zones[drag.i];z.x2=snap(m.X,e.altKey);$('read').textContent=`Separated zone: x = ${fx(Math.min(z.x1,z.x2),2)} to ${fx(Math.max(z.x1,z.x2),2)} m · ${+z.col?'rings '+z.col+'–'+(+z.col+1):'every collar'}`;compute(true);return}
+    if(dk==='pull'||dk==='magL'){const l=S.loads[drag.i];if(Math.abs(m.my-drag.y0)>2)drag.moved=true;l.P=pullP(drag,m.my,e.shiftKey);drag.cy=m.my;liveCompute();$('read').textContent=`${lname(drag.i)}: ${fx(l.P,0)} kN at x = ${fx(l.x,2)} m · drag up to increase, down to reduce${e.shiftKey?' · ×5':' · Shift for ×5'}`;return}
+    if(dk==='mkD'){S.loads[drag.i].x2=snap(m.X);liveCompute();return}
+    if(dk==='mkZ'){const z=S.rg.zones[drag.i];z.x2=snap(m.X,e.altKey);$('read').textContent=`Separated zone: x = ${fx(Math.min(z.x1,z.x2),2)} to ${fx(Math.max(z.x1,z.x2),2)} m · ${+z.col?'rings '+z.col+'–'+(+z.col+1):'every collar'}`;liveCompute();return}
     if(dk==='mkA'){const a=S.anns[drag.i];a.x2=snap(m.X,e.altKey);a.y2=snap(m.Y,e.altKey);drawArch();return}
     if(Math.hypot(m.mx-drag.m0.mx,m.my-drag.m0.my)>3)drag.moved=true;if(!drag.moved)return;
     const dX=m.X-drag.X0;
-    if(dk==='movL'){const l=S.loads[drag.i],o=drag.orig;if(l.type==='P'||l.type==='M')l.x=snap(o.x+dX);else{l.x1=snap(o.x1+dX);l.x2=snap(o.x2+dX)}compute(true);return}
-    if(dk==='endL'){const l=S.loads[drag.i],o=drag.orig,aIs1=o.x1<=o.x2;const key=(drag.end==='a')===aIs1?'x1':'x2';l[key]=snap(m.X);compute(true);return}
+    if(dk==='movL'){const l=S.loads[drag.i],o=drag.orig;if(l.type==='P'||l.type==='M')l.x=snap(o.x+dX);else{l.x1=snap(o.x1+dX);l.x2=snap(o.x2+dX)}liveCompute();return}
+    if(dk==='endL'){const l=S.loads[drag.i],o=drag.orig,aIs1=o.x1<=o.x2;const key=(drag.end==='a')===aIs1?'x1':'x2';l[key]=snap(m.X);liveCompute();return}
     if(dk==='movA'){const a=S.anns[drag.i],o=drag.orig,dY=m.Y-drag.Y0,s=v=>snap(v,e.altKey);if(a.type==='text'){a.x=s(o.x+dX);a.y=s(o.y+dY)}else{a.x1=s(o.x1+dX);a.x2=s(o.x2+dX);a.y1=s(o.y1+dY);a.y2=s(o.y2+dY)}drawArch();return}
     if(dk==='endA'){const a=S.anns[drag.i];a['x'+drag.h]=snap(m.X,e.altKey);a['y'+drag.h]=snap(m.Y,e.altKey);drawArch();return}
     return}
@@ -1522,7 +1573,7 @@ function ringJob(P,top){const key=ringKey(P);if(RJ.key===key&&RJ.busy)return;con
   const ok=()=>tok===RJ.tok,lv=liveOf(P),res={key,top,stage:'main',main:null,creq:undefined,lamR:undefined,lamB:undefined,tmin:undefined,live:lv.what,mR:ringSecs(P)};
   const pub=()=>{if(!ok())return;S.rgRes=res;if(R&&R.ringKey===key){R.ring=res;if(R.mov&&res.lamR!==undefined)R.mov.lamR=res.lamR;render()}};
   const G=ringGeoms(P,P.t,top,lv.sel);let left=4;const done=()=>{if(--left===0){res.stage='done';if(ok())RJ.busy=false}pub()};
-  ['job','j2','j3','j4'].forEach(lpReset);
+  ['job','j2','j3','j4','j5','j6'].forEach(lpReset);
   // the drawn state (most central ring lines), then the regularised state at that margin
   (async()=>{try{let main=await ringBand(m=>ok()?ringLPa(P,G,'feas',{m},'job'):Promise.resolve(undefined));if(!ok()||main===undefined)return;
     if(main.ok){const rg=await ringLPa(P,G,'reg',{m:main.m},'job');if(!ok()||rg===undefined)return;if(rg&&rg.ok){rg.m=main.m;rg.mHi=main.mHi;main=rg}}
@@ -1536,7 +1587,12 @@ function ringJob(P,top){const key=ringKey(P);if(RJ.key===key&&RJ.busy)return;con
     let lo=0.002*P.L,hi=P.t;const f0=await fe(P.t);if(!ok()||f0===undefined)return;
     if(!f0){lo=P.t;let found=false;for(let k=0;k<4&&!found;k++){hi=lo*1.5;const q=await fe(hi);if(!ok()||q===undefined)return;if(q)found=true;else lo=hi}if(!found){res.tmin={over:hi};done();return}}
     else{const q=await fe(lo);if(!ok()||q===undefined)return;if(q){res.tmin={t:lo,lo:true};done();return}}
-    for(let k=0;k<14;k++){const m=(lo+hi)/2,q=await fe(m);if(!ok()||q===undefined)return;q?hi=m:lo=m}
+    // with workers, quarter the bracket each round with three LPs side by side (the same dyadic points as 14 bisection steps)
+    const par=['j5','j6'].every(ch=>lpWorker(ch).w);
+    if(par){const fc=(t,ch)=>ringLPa(P,ringGeoms(P,t,top,lv.sel),'feas',{},ch).then(r=>r===undefined?undefined:!!r.ok);
+      for(let k=0;k<7;k++){const d=(hi-lo)/4,ts=[lo+d,lo+2*d,lo+3*d],q=await Promise.all([fc(ts[0],'j5'),fc(ts[1],'j4'),fc(ts[2],'j6')]);if(!ok()||q.some(v=>v===undefined))return;
+        const i=q.findIndex(Boolean);if(i<0)lo=ts[2];else{hi=ts[i];if(i>0)lo=ts[i-1]}}}
+    else for(let k=0;k<14;k++){const m=(lo+hi)/2,q=await fe(m);if(!ok()||q===undefined)return;q?hi=m:lo=m}
     res.tmin={t:hi};done()}catch(err){console.warn(err)}})()}
 function ringSameGeo(M){const g=R&&R.g;if(!M||!g)return false;const G=M.g;return M.n===ringFr(R.P.rg).length-1&&Math.abs(G.t-g.t)<1e-9&&Math.abs(G.L-g.L)<1e-9&&Math.abs(G.f-g.f)<1e-9&&G.shape===g.shape&&M.NR===g.N*(M.mR||1)}
 function ringCompute(P,g,fast){R.ringKey=null;R.ring=null;
@@ -1544,7 +1600,7 @@ function ringCompute(P,g,fast){R.ringKey=null;R.ring=null;
     if(S.rgRes&&S.rgRes.key===key)R.ring=S.rgRes;
     else{R.ring=S.rgRes&&S.rgRes.main?{...S.rgRes,stale:true}:{stage:'main',stale:true};if(!fast)ringJob(P,g.Ytop)}
     if(R.mov&&R.ring&&!R.ring.stale&&R.ring.lamR!==undefined)R.mov.lamR=R.ring.lamR}
-  else if(RJ.busy||S.rgRes){RJ.tok++;RJ.busy=false;RJ.key=null;['job','j2','j3','j4'].forEach(lpReset);S.rgRes=null}}
+  else if(RJ.busy||S.rgRes){RJ.tok++;RJ.busy=false;RJ.key=null;['job','j2','j3','j4','j5','j6'].forEach(lpReset);S.rgRes=null}}
 
 /* rings panel */
 const RG_F=[['rgN','n',1],['rgHk','hk',1],['rgC','c',0],['rgMu','mu',0],['rgMj','muj',0]];
@@ -1618,9 +1674,9 @@ function drawRings(x,g,sx,sy){const P=R.P,Rg=P.rg,fr=ringFr(Rg),n=fr.length-1,N=
 /* the thrust line of each ring (the drawn solution) */
 function drawRingLines(x,g,sx,sy){const RG=R.ring,M=RG&&RG.main;if(!M||!ringSameGeo(M))return;const bad=M.m<0,col=bad?css.bad:css.thrust,dk=document.documentElement.dataset.theme==='dark';
   x.save();if(RG.stale)x.globalAlpha=.35;
-  M.rings.forEach(r=>{x.save();x.shadowColor=col;x.shadowBlur=dk&&!RG.stale?7:0;x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';if(bad)x.setLineDash([7,5]);
+  M.rings.forEach(r=>{x.save();x.strokeStyle=col;x.lineJoin='round';if(bad)x.setLineDash([7,5]);const glow=dk&&!RG.stale;x.lineWidth=2;
     // a joint that carries no force has no pressure point: the line breaks there
-    let run=[];const flush=()=>{if(run.length>1)poly(x,run,sx,sy);run=[]};r.J.forEach(J=>{if(J.zero)flush();else run.push(J.p)});flush();x.restore();
+    let run=[];const flush=()=>{if(run.length>1){if(glow){haloPoly(x,run,sx,sy,2,7);x.lineWidth=2}poly(x,run,sx,sy)}run=[]};r.J.forEach(J=>{if(J.zero)flush();else run.push(J.p)});flush();x.restore();
     r.J.forEach((J,j,A)=>{if(J.zero)return;const out=J.s<-1e-6||J.s>1+1e-6;if(out){x.fillStyle=css.bad;x.beginPath();x.arc(sx(J.p[0]),sy(J.p[1]),2.3,0,7);x.fill();return}
       const e=Math.abs(J.e);if(e>=0.97&&e>=Math.abs((A[j-1]||{e:0}).e)&&e>=Math.abs((A[j+1]||{e:0}).e)){x.strokeStyle=col;x.lineWidth=1.6;x.beginPath();x.arc(sx(J.p[0]),sy(J.p[1]),5.5,0,7);x.stroke()}})});
   x.restore();
@@ -1809,6 +1865,7 @@ $('exGal').onclick=()=>{let h='<p>Every example structure, previewed with its mi
 
 
 const CHANGELOG=[
+ ['1.16.1','Speed',['Faster solving: an admissible thrust is now found with one small linear programme (maximum uniform slack over H, V and c) instead of about fifty golden-section steps of polygon clipping, with the old search kept for cases within round-off of the limit. The polygon clipper allocates nothing in its inner loop. Recomputing after a change is 2–4× faster, t_min and the convergence check settle in about 0.4 s instead of 1 s, and the validation suite runs in half the time. All results are unchanged (validation tables identical to round-off).','Faster linear programmes: the simplex keeps one column per nonbasic variable instead of one per variable, with the same pivots (results bit-identical). The moving-load λ uses it, which speeds up the route scan and ▶ Play. With rings, the t_min search quarters its bracket with three background workers side by side.','Faster drawing: fill textures are drawn once per material into a seamless tile and filled as a pattern, and the neon glow on thrust lines is drawn as halo strokes instead of a canvas shadow blur. A redraw takes about a quarter of the time it did.','Dragging a load recomputes at most once per screen frame.']],
  ['1.16','Rings',['Multi-ring arches (left palette, Rings & bond): the arch can be built as up to six rings, equal or with given thicknesses, joined by collar joints. Bond: header-bonded throughout (the rings act as one), header courses every k voussoirs, collar joints only (mortar cohesion c and friction μ), or separated (debonded: friction only).',
   'Ring-by-ring analysis: each ring must hold its own thrust line at every ring section, the rings pass normal force n ≥ 0 and shear |S| ≤ μn + cℓ across their collar joints, and header courses pass any force. An optional friction check on each ring\'s own joints (μ radial) stops a ring\'s thrust crossing its joints at a shallow angle. Everything is linear, so feasibility, the load factor and the collar bond needed are linear programmes, solved in background workers by a new simplex (Devex pricing, Harris ratio test, scaling).',
   'Ring separation: separated zones on one collar or all of them (c = 0, header courses broken), drawn with the new Separation tool (R) or listed in the panel, with an edit box for each zone.',
@@ -1836,7 +1893,7 @@ const CHANGELOG=[
  ['1.3','Spread',['Angle of spread for each fill layer. Point loads, UDLs and varying UDLs now spread down through the layers as a fan of equal-share streamlines and are delivered to the extrados where they land; any share that leaves the span is carried by the abutments.','Patch width for point loads (default 0.3 m) and a shaded spread fan on the canvas, with arrows marking where each block\'s share of surface load arrives.','Frame Pusher style tool rail with key shortcuts: Select (V), Point load (P), UDL (U), Var. UDL (W), and annotation tools Text note (T), Box (G), Line (L), Arrow (K), Dimension (D).','Select a placed load to edit its position, magnitude, patch width or extent in a popup, drag it to move it, drag a distributed load\'s end handles to resize it, and press Del to remove it. The popup reports how much load reaches the arch and how much goes to the abutments.','Annotations: select, move, reshape by their handles, restyle (colour, line width, dash, font size) and delete.','Top navigation bar with New, Save / load (copy the text, paste it back, or open a file; autosaved in the browser), Validation and About & changelog.','Floating canvas toolbar with Undo / Redo (Ctrl+Z / Ctrl+Y), Clear loads and a light / dark theme switch. The interface now follows Frame Pusher\'s neon theme.','Validation suite comparing the solver with closed-form and published results (Milankovitch minimum thickness and hinge angle, load conservation, spread geometry, reciprocal-diagram slopes, equilibrium and symmetry).','Exact thrust-range search: the admissible H band is now found by maximising the joint slack, which is concave in H, instead of a log-scale scan. Earlier versions could step over a very narrow band near collapse, so t_min came out about 0.6% high (t/R 0.108 instead of 0.1075) and the geometric factor of safety was slightly conservative.','Removed double-click-to-delete for loads, which is replaced by selection and the Del key.']],
  ['1.2','Breakdown',['Clicking a voussoir or fill strip opens a box with its exact volumes, unit weights, weights and centroids, the surface load on it, and the joint forces either side (H, V, R and its inclination, normal and shear force, S/N, eccentricity and the pressure point from the intrados), with a vertical equilibrium check.','Fill is defined as any number of named layers, each with its own depth at the crown and unit weight. The bottom layer runs down to the extrados.','Fixed the thrust line display under heavy end loads: the line now bends only where the kink lies inside its block, so it no longer drops below the springing and snaps back to the bottom voussoir. A Funicular polygon toggle shows the full uncorrected polygon.']],
  ['1.1','Thrust',['First release: a semicircular (or segmental) arch with span, rise, ring thickness, voussoir count, masonry density, and fill depth and density.','Heyman\'s assumptions (no tension, infinite compressive strength, no sliding). The full admissible range of horizontal thrust is found exactly, with minimum-thrust, maximum-thrust and 3-point thrust lines and hinge markers.','Voussoir and fill centroids, and the reciprocal force polygon (load line, pole and rays) highlighted per voussoir on hover.','Point loads added by pressing and holding on the fill surface, with drag to move.','Minimum ring thickness and geometric factor of safety, checked against Heyman and Milankovitch: t/R ≈ 0.108 for a semicircle under self-weight.']]];
-$('bAbout').onclick=()=>{let h=`<p><b>Arch Pusher</b> v${VER} "${VNAME}" · 26 Oct 2026</p><p>A lower-bound (safe theorem) analysis of masonry arches using thrust lines and graphic statics. It is a companion to Frame Pusher and uses the same interface conventions.</p>
+$('bAbout').onclick=()=>{let h=`<p><b>Arch Pusher</b> v${VER} "${VNAME}" · 8 Nov 2026</p><p>A lower-bound (safe theorem) analysis of masonry arches using thrust lines and graphic statics. It is a companion to Frame Pusher and uses the same interface conventions.</p>
 <h4>Method</h4><ul>
 <li><b>Heyman's assumptions:</b> masonry has no tensile strength, unlimited compressive strength, and sliding between voussoirs does not occur. If any thrust line in equilibrium with the loads lies within the ring at every joint, the arch is safe (the safe theorem).</li>
 <li><b>Shapes:</b> semicircular, segmental, pointed (two-centred), elliptical, parabolic or catenary intrados. Voussoirs are of equal length along the intrados, with joints normal to it. The extrados is concentric for the circular shapes, an ellipse with semi-axes a + t, f + t for the elliptical arch, and a parallel curve at distance t for the parabolic and catenary arches. The road sits at the crown extrados plus the fill depth.</li>
